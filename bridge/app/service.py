@@ -5600,6 +5600,61 @@ class Bridge:
                     with session.condition:
                         session.changed()
 
+    def send_via_cli_resume(self, thread_id, text, submission_id, mode="send", files=None):
+        """Fallback writer: submit the turn through `codex exec resume`.
+
+        Codex 0.171 replaced the desktop named pipe with an app-server control
+        socket that this bridge cannot attach to yet. The CLI can still resume
+        the same thread and append the turn to the same session store, which the
+        gateway already reads, so sending keeps working without the IPC.
+        """
+        row = {}
+        try:
+            row = self.store.get(thread_id) or {}
+        except Exception:
+            row = {}
+        cwd = row.get('cwd') or os.path.expanduser('~')
+        if not os.path.isdir(cwd):
+            cwd = os.path.expanduser('~')
+        executable = getattr(getattr(self, 'catalog_reader', None), 'executable', None) or 'codex'
+        prompt = text or ''
+        if files:
+            paths = [f.get('path') for f in files if isinstance(f, dict) and f.get('path')]
+            if paths:
+                prompt = prompt + "\n\n" + "\n".join("- " + str(p) for p in paths)
+        command = [str(executable), 'exec', '--skip-git-repo-check', '--json', 'resume', str(thread_id), prompt]
+        if os.name == 'nt' and str(executable).lower().endswith(('.cmd', '.bat')):
+            command = [os.environ.get('COMSPEC', 'cmd.exe'), '/c'] + command
+        creation = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0
+        environment = dict(os.environ)
+        environment.setdefault('CODEX_HOME', str(self.codex_home))
+        # A failed desktop attach leaves an orphaned writer lock behind; it is
+        # only removable while no live process holds it, so this is safe.
+        lock_path = Path(self.codex_home) / 'thread-writer-locks' / (str(thread_id) + '.lock')
+        if lock_path.exists():
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
+        log_path = os.path.join(str(self.data_dir), 'cli-resume.log')
+        log = open(log_path, 'ab')
+        try:
+            process = subprocess.Popen(
+                command, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                stdout=log, stderr=subprocess.STDOUT, close_fds=True, creationflags=creation)
+        except OSError as exc:
+            log.close()
+            raise IPCError('CLI 兜底发送启动失败：%s' % exc) from exc
+        self.submissions[str(thread_id) + ':' + str(submission_id)] = {
+            'text': text, 'mode': mode, 'status': 'accepted',
+            'at': time.time(), 'cliResumePid': process.pid}
+        try:
+            self._save_ledger()
+        except Exception:
+            pass
+        logging.getLogger(__name__).info('CLI resume fallback submitted thread=%s pid=%s', thread_id, process.pid)
+        return {'status': 'accepted', 'id': submission_id, 'cliResume': True}
+
     def _dispatch(self, session, key, entry):
         submission_id = key.split(":")[1]
         text = entry["text"]

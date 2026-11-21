@@ -1422,9 +1422,15 @@ class Handler(BaseHTTPRequestHandler):
             if action == "message-action":
                 result = bridge.message_action(thread_id, body)
             elif action == "send":
-                result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"),
-                                     body.get("skills", []), work_mode=body.get("workMode"),
-                                     attachments=body.get('attachments'), references=body.get('references'), ui_locale=body.get("uiLocale"))
+                try:
+                    result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"),
+                                         body.get("skills", []), work_mode=body.get("workMode"),
+                                         attachments=body.get('attachments'), references=body.get('references'), ui_locale=body.get("uiLocale"))
+                except (IPCError, StoreUnavailable) as exc:
+                    LOG.warning("desktop IPC unavailable (%s); falling back to CLI resume", exc)
+                    result = bridge.send_via_cli_resume(
+                        thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"),
+                        bridge.uploads.resolve(thread_id, body.get('attachments') or []))
             elif action == "archive":
                 if set(body) not in ({'archived', 'id'}, {'archived', 'id', 'disconnect'}):
                     raise ValueError('聊天归档设置无效')
