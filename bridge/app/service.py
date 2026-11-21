@@ -3784,6 +3784,12 @@ class Bridge:
                        for session in self.live.values())
 
     def reconnect_session(self, thread_id, *, rebuild=False):
+        if os.environ.get('BRIDGE_PREFER_CLI_RESUME') == '1':
+            # CLI fallback: reconnect is a no-op. Writes never use the desktop
+            # IPC follower, so report connected immediately instead of waiting
+            # for an attach that cannot succeed.
+            self.session(thread_id, attach=False, background=True).view()
+            return SimpleNamespace(connected=True)
         # Join duplicate phone reconnects before they queue behind the host gate.
         # Only connection reads are shared; writes keep their existing receipts.
         key = (thread_id, rebuild)
