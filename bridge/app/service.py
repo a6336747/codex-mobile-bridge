@@ -245,6 +245,20 @@ class LiveSession:
             result["rebuildRecommended"] = self.rebuild_recommended and not self.connected
             result["desktopRestartRecommended"] = self.desktop_restart_recommended and not self.connected
             result["connecting"] = self.connecting
+
+            if (not self.connected and os.environ.get('BRIDGE_PREFER_CLI_RESUME') == '1'
+                    and self.origin not in ('cli', 'ide')):
+                # CLI fallback is a write-only attachment: the composer submits
+                # through `codex exec resume`, so report the session as live to
+                # stop clients from looping on reconnect.
+                result['connected'] = True
+                if result.get('status') == 'notLoaded':
+                    result['status'] = 'idle'
+                result['connectionError'] = None
+                result['connecting'] = False
+                result['rebuildRecommended'] = False
+                result['desktopRestartRecommended'] = False
+                result['capabilities'] = {'compact': False}
             result['capabilities'] = {'compact': self.connected and result['status'] == 'idle' and not result['requests']}
             result["activating"] = self.activating
             result["loadingHistory"] = self.state is None and self.history_state is None
