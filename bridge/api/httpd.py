@@ -1422,6 +1422,11 @@ class Handler(BaseHTTPRequestHandler):
             if action == "message-action":
                 result = bridge.message_action(thread_id, body)
             elif action == "send":
+                if os.environ.get('BRIDGE_PREFER_CLI_RESUME') == '1':
+                    result = bridge.send_via_cli_resume(
+                        thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"),
+                        bridge.uploads.resolve(thread_id, body.get('attachments') or []))
+                    return self.output(200, result)
                 try:
                     result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"),
                                          body.get("skills", []), work_mode=body.get("workMode"),

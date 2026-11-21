@@ -5634,8 +5634,8 @@ class Bridge:
         if lock_path.exists():
             try:
                 lock_path.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                raise IPCError('该会话正在电脑端使用，暂时无法从手机发送') from exc
         log_path = os.path.join(str(self.data_dir), 'cli-resume.log')
         log = open(log_path, 'ab')
         try:
